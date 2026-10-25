@@ -6,6 +6,7 @@ export interface GenerateOptions {
   systemInstruction?: string;
   responseMimeType?: 'application/json' | 'text/plain';
   temperature?: number;
+  userId?: string;
 }
 
 export async function callGeminiApi(options: GenerateOptions): Promise<string> {
@@ -14,6 +15,7 @@ export async function callGeminiApi(options: GenerateOptions): Promise<string> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: options.model || 'gemini-3.1-flash-lite',
+      userId: options.userId,
       ...options,
     }),
   });
@@ -30,7 +32,8 @@ export async function callGeminiApi(options: GenerateOptions): Promise<string> {
 export async function callGeminiChat(
   messages: { role: 'user' | 'assistant'; content: string }[],
   systemInstruction?: string,
-  model: 'gemini-3.5-flash' | 'gemini-3.1-pro-preview' | 'gemini-3.1-flash-lite' = 'gemini-3.1-flash-lite'
+  model: 'gemini-3.5-flash' | 'gemini-3.1-pro-preview' | 'gemini-3.1-flash-lite' = 'gemini-3.1-flash-lite',
+  userId?: string
 ): Promise<string> {
   const res = await fetch('/api/gemini/chat', {
     method: 'POST',
@@ -39,6 +42,7 @@ export async function callGeminiChat(
       model,
       messages,
       systemInstruction,
+      userId,
     }),
   });
 
@@ -51,11 +55,11 @@ export async function callGeminiChat(
   return data.text || '';
 }
 
-export async function callGeminiImageAnalysis(imageBase64: string, prompt: string): Promise<string> {
+export async function callGeminiImageAnalysis(imageBase64: string, prompt: string, userId?: string): Promise<string> {
   const res = await fetch('/api/gemini/analyze-image', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ imageBase64, prompt }),
+    body: JSON.stringify({ imageBase64, prompt, userId }),
   });
 
   if (!res.ok) {

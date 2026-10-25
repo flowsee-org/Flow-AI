@@ -2,7 +2,7 @@ import express from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { GoogleGenAI } from '@google/genai';
+import { CentralizedAIService } from './server/aiService';
 
 dotenv.config();
 
@@ -14,22 +14,43 @@ const PORT = 3000;
 
 app.use(express.json({ limit: '20mb' }));
 
-const getGeminiClient = () => {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error('GEMINI_API_KEY is not configured in environment');
-  }
-  return new GoogleGenAI({
-    apiKey,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build',
-      },
-    },
-  });
+// ---------------------------------------------------------------------------
+// Centralized AI Service initialization
+//
+// Supports multiple keys via GEMINI_API_KEYS (comma-separated) for rotation.
+// Falls back to single GEMINI_API_KEY if only one is configured.
+// ---------------------------------------------------------------------------
+const rawKeys = process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || '';
+const apiKeys = rawKeys
+  .split(',')
+  .map((k) => k.trim())
+  .filter(Boolean);
+
+if (apiKeys.length === 0) {
+  console.warn(
+    'WARNING: No GEMINI_API_KEY / GEMINI_API_KEYS configured. AI endpoints will fail.'
+  );
+}
+
+const aiService = new CentralizedAIService(apiKeys);
+
+// Helper: resolve client identifier (userId > header > IP)
+const resolveUserId = (req: express.Request): string => {
+  return (
+    (req.body && (req.body as any).userId) ||
+    req.headers['x-user-id'] ||
+    req.ip ||
+    'anonymous'
+  );
 };
 
+const resolveIp = (req: express.Request): string => {
+  return req.ip || req.socket.remoteAddress || 'unknown';
+};
+
+// ---------------------------------------------------------------------------
 // POST /api/gemini/generate
+// ---------------------------------------------------------------------------
 app.post('/api/gemini/generate', async (req, res) => {
   try {
     const {
@@ -38,13 +59,14 @@ app.post('/api/gemini/generate', async (req, res) => {
       systemInstruction,
       responseMimeType,
       temperature = 0.7,
+      userId,
     } = req.body;
 
     if (!prompt) {
       return res.status(400).json({ error: 'Missing prompt' });
     }
 
-    const ai = getGeminiClient();
+    const contents = prompt;
     const config: any = {
       temperature,
     };
@@ -56,92 +78,124 @@ app.post('/api/gemini/generate', async (req, res) => {
     }
 
     try {
-      const response = await ai.models.generateContent({
+      const { text, usage } = await aiService.generateContent({
+        endpoint: '/api/gemini/generate',
         model,
-        contents: prompt,
+        contents,
         config,
+        userId: userId || resolveUserId(req),
+        ip: resolveIp(req),
       });
-      return res.json({ text: response.text });
+      return res.json({ text, usage });
     } catch (modelErr: any) {
-      console.warn(`Model ${model} failed (${modelErr.message}). Retrying with gemini-3.1-flash-lite...`);
+      console.warn(
+        `Model ${model} failed (${modelErr.message}). Retrying with gemini-3.1-flash-lite...`
+      );
       if (model !== 'gemini-3.1-flash-lite') {
-        const fallbackResponse = await ai.models.generateContent({
+        const { text, usage } = await aiService.generateContent({
+          endpoint: '/api/gemini/generate',
           model: 'gemini-3.1-flash-lite',
           contents: prompt,
-          config,
+          config: { temperature, systemInstruction, responseMimeType },
+          userId: userId || resolveUserId(req),
+          ip: resolveIp(req),
         });
-        return res.json({ text: fallbackResponse.text });
+        return res.json({ text, usage });
       }
       throw modelErr;
     }
   } catch (err: any) {
     console.error('Error generating content:', err);
-    return res.status(500).json({ error: err.message || 'AI Generation failed' });
+    const isRateLimit =
+      err?.message?.includes('Rate limit') ||
+      err?.message?.includes('exhausted');
+    return res.status(isRateLimit ? 429 : 500).json({
+      error: err.message || 'AI Generation failed',
+    });
   }
 });
 
+// ---------------------------------------------------------------------------
 // POST /api/gemini/chat
+// ---------------------------------------------------------------------------
 app.post('/api/gemini/chat', async (req, res) => {
   try {
     const {
       model = 'gemini-3.1-flash-lite',
       messages,
       systemInstruction,
+      userId,
     } = req.body;
 
     if (!messages || !Array.isArray(messages)) {
       return res.status(400).json({ error: 'Missing messages array' });
     }
 
-    const ai = getGeminiClient();
     const formattedContents = messages.map((m: any) => ({
       role: m.role === 'user' ? 'user' : 'model',
       parts: [{ text: m.content || m.text }],
     }));
 
     try {
-      const response = await ai.models.generateContent({
+      const { text, usage } = await aiService.generateContent({
+        endpoint: '/api/gemini/chat',
         model,
         contents: formattedContents,
         config: systemInstruction ? { systemInstruction } : undefined,
+        userId: userId || resolveUserId(req),
+        ip: resolveIp(req),
       });
-      return res.json({ text: response.text });
+      return res.json({ text, usage });
     } catch (modelErr: any) {
-      console.warn(`Chat model ${model} failed (${modelErr.message}). Retrying with gemini-3.1-flash-lite...`);
+      console.warn(
+        `Chat model ${model} failed (${modelErr.message}). Retrying with gemini-3.1-flash-lite...`
+      );
       if (model !== 'gemini-3.1-flash-lite') {
-        const fallbackResponse = await ai.models.generateContent({
+        const { text, usage } = await aiService.generateContent({
+          endpoint: '/api/gemini/chat',
           model: 'gemini-3.1-flash-lite',
           contents: formattedContents,
           config: systemInstruction ? { systemInstruction } : undefined,
+          userId: userId || resolveUserId(req),
+          ip: resolveIp(req),
         });
-        return res.json({ text: fallbackResponse.text });
+        return res.json({ text, usage });
       }
       throw modelErr;
     }
   } catch (err: any) {
     console.error('Error in AI Copilot chat:', err);
-    return res.status(500).json({ error: err.message || 'Chat generation failed' });
+    const isRateLimit =
+      err?.message?.includes('Rate limit') ||
+      err?.message?.includes('exhausted');
+    return res.status(isRateLimit ? 429 : 500).json({
+      error: err.message || 'Chat generation failed',
+    });
   }
 });
 
+// ---------------------------------------------------------------------------
 // POST /api/gemini/analyze-image
+// ---------------------------------------------------------------------------
 app.post('/api/gemini/analyze-image', async (req, res) => {
   try {
     const {
       imageBase64,
       mimeType = 'image/jpeg',
-      prompt = 'Analyze this content screenshot/visual and extract actionable ideas, hook angles, and structure for social media content.',
+      prompt =
+        'Analyze this content screenshot/visual and extract actionable ideas, hook angles, and structure for social media content.',
+      userId,
     } = req.body;
 
     if (!imageBase64) {
       return res.status(400).json({ error: 'Missing imageBase64' });
     }
 
-    const ai = getGeminiClient();
     const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
 
     try {
-      const response = await ai.models.generateContent({
+      const { text, usage } = await aiService.generateContent({
+        endpoint: '/api/gemini/analyze-image',
         model: 'gemini-3.1-pro-preview',
         contents: [
           {
@@ -152,11 +206,16 @@ app.post('/api/gemini/analyze-image', async (req, res) => {
           },
           prompt,
         ],
+        userId: userId || resolveUserId(req),
+        ip: resolveIp(req),
       });
-      return res.json({ text: response.text });
+      return res.json({ text, usage });
     } catch (err: any) {
-      console.warn('analyze-image fallback to gemini-3.1-flash-image or flash-lite...');
-      const fallbackResponse = await ai.models.generateContent({
+      console.warn(
+        'analyze-image fallback to gemini-3.1-flash-image or flash-lite...'
+      );
+      const { text, usage } = await aiService.generateContent({
+        endpoint: '/api/gemini/analyze-image',
         model: 'gemini-3.1-flash-image',
         contents: [
           {
@@ -167,13 +226,32 @@ app.post('/api/gemini/analyze-image', async (req, res) => {
           },
           prompt,
         ],
+        userId: userId || resolveUserId(req),
+        ip: resolveIp(req),
       });
-      return res.json({ text: fallbackResponse.text });
+      return res.json({ text, usage });
     }
   } catch (err: any) {
     console.error('Error in analyze-image:', err);
-    return res.status(500).json({ error: err.message || 'Image analysis failed' });
+    const isRateLimit =
+      err?.message?.includes('Rate limit') ||
+      err?.message?.includes('exhausted');
+    return res.status(isRateLimit ? 429 : 500).json({
+      error: err.message || 'Image analysis failed',
+    });
   }
+});
+
+// ---------------------------------------------------------------------------
+// Debug / observability endpoints
+// ---------------------------------------------------------------------------
+app.get('/api/ai/stats', (_req, res) => {
+  return res.json({
+    cache: aiService.getCacheStats(),
+    rateLimit: aiService.getRateLimitStats(),
+    recentTokenLogs: aiService.getTokenLogs().slice(-50),
+    keyCount: apiKeys.length,
+  });
 });
 
 async function startServer() {

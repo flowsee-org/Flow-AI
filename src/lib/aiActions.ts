@@ -63,6 +63,7 @@ Return a valid JSON array of objects with the exact schema:
 
   const res = await callGeminiApi({
     model: 'gemini-3.1-flash-lite',
+    userId: workspace?.userId,
     prompt,
     systemInstruction: brandPrompt,
     responseMimeType: 'application/json',
@@ -100,6 +101,7 @@ Return a valid JSON array:
 
   const res = await callGeminiApi({
     model: 'gemini-3.1-flash-lite',
+    userId: workspace?.userId,
     prompt,
     systemInstruction: brandPrompt,
     responseMimeType: 'application/json',
@@ -133,6 +135,7 @@ Return a JSON array of strings:
 
   const res = await callGeminiApi({
     model: 'gemini-3.1-flash-lite',
+    userId: workspace?.userId,
     prompt,
     systemInstruction: brandPrompt,
     responseMimeType: 'application/json',
@@ -189,6 +192,7 @@ Return a valid JSON object matching:
 
   const res = await callGeminiApi({
     model: 'gemini-3.1-flash-lite',
+    userId: workspace?.userId,
     prompt,
     systemInstruction: brandPrompt,
     responseMimeType: 'application/json',
@@ -239,6 +243,7 @@ Output ONLY the rewritten text without markdown fences or meta commentary.
 
   return await callGeminiApi({
     model: 'gemini-3.1-flash-lite',
+    userId: workspace?.userId,
     prompt,
     systemInstruction: brandPrompt,
     temperature: 0.75,
@@ -317,6 +322,7 @@ Return a valid JSON object matching:
 
   const res = await callGeminiApi({
     model: 'gemini-3.1-flash-lite',
+    userId: workspace?.userId,
     prompt,
     systemInstruction: brandPrompt,
     responseMimeType: 'application/json',
@@ -409,6 +415,7 @@ Return a valid JSON object:
 
   const res = await callGeminiApi({
     model: 'gemini-3.1-flash-lite',
+    userId: workspace?.userId,
     prompt,
     systemInstruction: brandPrompt,
     responseMimeType: 'application/json',
@@ -493,6 +500,7 @@ Return a valid JSON array of objects:
 
   const res = await callGeminiApi({
     model: 'gemini-3.1-flash-lite',
+    userId: workspace?.userId,
     prompt,
     systemInstruction: brandPrompt,
     responseMimeType: 'application/json',
@@ -549,6 +557,7 @@ Return a valid JSON array of 7 items matching:
 
   const res = await callGeminiApi({
     model: 'gemini-3.1-flash-lite',
+    userId: workspace?.userId,
     prompt,
     systemInstruction: brandPrompt,
     responseMimeType: 'application/json',
@@ -593,6 +602,7 @@ Return a JSON object:
 
   const res = await callGeminiApi({
     model: 'gemini-3.1-flash-lite',
+    userId: workspace?.userId,
     prompt,
     systemInstruction: brandPrompt,
     responseMimeType: 'application/json',
